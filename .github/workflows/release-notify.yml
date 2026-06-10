@@ -1,0 +1,41 @@
+name: Release Notify
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get changelog
+        id: log
+        run: |
+          CURR="${{ github.ref_name }}"
+          PREV=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n '2p')
+          if [ -n "$PREV" ]; then
+            LOG=$(git log ${PREV}..${CURR} --pretty=format:"• %s" --no-merges | head -10)
+          else
+            LOG=$(git log ${CURR} --pretty=format:"• %s" --no-merges | head -10)
+          fi
+          echo "log<<EOF" >> $GITHUB_OUTPUT
+          echo "$LOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Post to Slack
+        run: |
+          REPO="${{ github.repository }}"
+          REPO_NAME="${REPO##*/}"
+          TAG="${{ github.ref_name }}"
+          LOG="${{ steps.log.outputs.log }}"
+          PAYLOAD=$(jq -n \
+            --arg text "*${REPO_NAME}* \`${TAG}\`\n${LOG}" \
+            '{"text": $text}')
+          curl -s -X POST -H 'Content-type: application/json' \
+            --data "$PAYLOAD" \
+            "${{ secrets.SLACK_RELEASE_WEBHOOK }}"
