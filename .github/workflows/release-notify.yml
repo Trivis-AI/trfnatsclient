@@ -33,9 +33,8 @@ jobs:
           REPO_NAME="${REPO##*/}"
           TAG="${{ github.ref_name }}"
           LOG="${{ steps.log.outputs.log }}"
-          PAYLOAD=$(jq -n \
-            --arg text "*${REPO_NAME}* \`${TAG}\`\n${LOG}" \
-            '{"text": $text}')
+          TEXT=$(printf "*%s* \`%s\`\n%s" "$REPO_NAME" "$TAG" "$LOG")
+          PAYLOAD=$(jq -n --arg text "$TEXT" '{"text": $text}')
           curl -s -X POST -H 'Content-type: application/json' \
             --data "$PAYLOAD" \
             "${{ secrets.SLACK_RELEASE_WEBHOOK }}"
