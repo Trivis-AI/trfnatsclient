@@ -1,4 +1,4 @@
-module github.com/triiberg/trfnatsclient
+module github.com/Trivis-AI/trfnatsclient
 
 go 1.23.0
 
