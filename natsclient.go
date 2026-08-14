@@ -17,11 +17,21 @@ const (
 
 	StreamErrors      = "TRF_ERRORS"
 	SubjectErrorEvent = "error.event"
+
+	StreamSupport          = "TRF_SUPPORT"
+	SubjectAssistRequested = "support.assist.requested"
 )
 
 // ErrorStreamMaxAge bounds how long undelivered error events are kept in
 // JetStream. Errors are operational telemetry, not compliance data.
 const ErrorStreamMaxAge = 30 * 24 * time.Hour
+
+// SupportStreamMaxAge bounds how long undelivered support events are kept.
+// Short on purpose: an assist request is a person waiting right now, and
+// replaying a week-old one would page an operator to a conversation that ended
+// days ago. If it was not delivered within a day it is scrap — the poller
+// rebuilds the queue from state regardless, so nothing is actually lost.
+const SupportStreamMaxAge = 24 * time.Hour
 
 // EmbedRequest is published by domain services when embeddable content changes.
 type EmbedRequest struct {
@@ -66,6 +76,39 @@ type ErrorEvent struct {
 	OccurredAt string `json:"occurred_at"` // RFC3339
 }
 
+// AssistRequested is published by trfbackai the moment a customer presses
+// "talk to a human", and consumed by trfbacksupport to put the chat in the
+// support inbox and notify whoever is on duty.
+//
+// This exists because the alternative is polling, and polling is the wrong
+// shape for this one event. trfbacksupport sweeps every org every couple of
+// minutes to find broken chats, which is right for a conclusion drawn from
+// telemetry — but a person pressing a button is not a conclusion, it is an
+// interruption, and making them wait out a sweep interval to be NOTICED defeats
+// the point of the button. The sweep still picks these up; it is the backstop,
+// not the path.
+//
+// Publishing is best-effort fire-and-forget, like every other event here. The
+// customer's request is already committed to the tenant database before this is
+// sent, so a dropped event costs latency, never the request.
+type AssistRequested struct {
+	EventID   string `json:"event_id"` // uuid — idempotency key
+	OrgID     string `json:"org_id"`
+	OrgName   string `json:"org_name"`
+	OrgSlug   string `json:"org_slug"`
+	UserID    string `json:"user_id"`    // account uuid of whoever asked
+	SessionID string `json:"session_id"` // the AI session they asked from
+	// Goal is the conversation's opening message, truncated. Enough for an
+	// operator to tell a password reset from a year-end close before opening
+	// anything — deliberately not the transcript, which is customer content and
+	// belongs behind the console's access log.
+	Goal string `json:"goal"`
+	// Language is the conversation's language, so whoever is notified knows
+	// which of them can actually answer.
+	Language    string `json:"language"`
+	RequestedAt string `json:"requested_at"` // RFC3339
+}
+
 // EnsureStreams creates required JetStream streams if they do not exist.
 // Safe to call on every service startup.
 func EnsureStreams(js nats.JetStreamContext) error {
@@ -75,7 +118,10 @@ func EnsureStreams(js nats.JetStreamContext) error {
 	if err := ensureStream(js, StreamAudit, []string{SubjectAuditEvent}, 0); err != nil {
 		return err
 	}
-	return ensureStream(js, StreamErrors, []string{SubjectErrorEvent}, ErrorStreamMaxAge)
+	if err := ensureStream(js, StreamErrors, []string{SubjectErrorEvent}, ErrorStreamMaxAge); err != nil {
+		return err
+	}
+	return ensureStream(js, StreamSupport, []string{SubjectAssistRequested}, SupportStreamMaxAge)
 }
 
 func ensureStream(js nats.JetStreamContext, name string, subjects []string, maxAge time.Duration) error {
