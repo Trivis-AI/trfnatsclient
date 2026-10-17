@@ -50,10 +50,28 @@ type AuditEvent struct {
 	EntityType string `json:"entity_type"` // "journal_entry"|"invoice"|"contact"|"payment"|etc.
 	EntityID   string `json:"entity_id"`   // uuid
 	Action     string `json:"action"`      // "create"|"update"|"delete"|"post"|"void"|"confirm"|etc.
-	ActorID    string `json:"actor_id"`    // account uuid from JWT
-	ActorName  string `json:"actor_name"`  // username from JWT
+	ActorID    string `json:"actor_id"`    // executor: account, agent or service principal uuid; never empty
+	ActorName  string `json:"actor_name"`  // executor's name
 	OccurredAt string `json:"occurred_at"` // RFC3339
 	Summary    string `json:"summary"`     // e.g. "Invoice INV-001 confirmed"
+
+	// Audit v2 (documentation/AGENT-PRINCIPALS-PHASE0.md, "Audit event v2").
+	// Build events with trflib/audit.New, which fills these from the verified
+	// token; never set them by hand. An event without ActorKind is v1.
+	ActorKind       string `json:"actor_kind,omitempty"`        // person|agent|service
+	OnBehalfOfID    string `json:"on_behalf_of_id,omitempty"`   // person a non-person acted for (token "d")
+	OnBehalfOfName  string `json:"on_behalf_of_name,omitempty"` //
+	AccountableID   string `json:"accountable_id,omitempty"`    // person who answers for it; empty only for a service on its own account
+	Via             string `json:"via,omitempty"`               // channel: "web", "mcp:<client>", "api", "nats:<subject>"
+	RunID           string `json:"run_id,omitempty"`            // Phase 1: agent run
+	ActionID        string `json:"action_id,omitempty"`         // Phase 1: one tool call / write
+	AgentVersion    string `json:"agent_version,omitempty"`     // Phase 1
+	ExternalRef     string `json:"external_ref,omitempty"`      // caller's own reference (batch id, idempotency key)
+	CorrectsEventID string `json:"corrects_event_id,omitempty"` // this write reverses or amends that event
+	SuggestedByID   string `json:"suggested_by_id,omitempty"`   // Phase 1: agent whose result this applied
+	SuggestedByRun  string `json:"suggested_by_run,omitempty"`  //
+	SuggestedByVer  string `json:"suggested_by_version,omitempty"`
+	SuggestionEdit  bool   `json:"suggestion_edited,omitempty"` // the person changed the suggestion before applying it
 }
 
 // ErrorEvent is published by any backend when a user-visible failure occurs:
